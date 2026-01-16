@@ -1,0 +1,7 @@
+.idea
+.venv
+elastic-marmousi-model
+
+*__pycache__*
+output
+input
