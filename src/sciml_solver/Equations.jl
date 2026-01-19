@@ -2,7 +2,7 @@ using OrdinaryDiffEq
 using Zygote
 using CUDA
 
-include("ElasticModel.jl")
+include("Model.jl")
 include("Solver.jl")
 include(joinpath("..", "Stencil.jl"))
 
@@ -72,8 +72,6 @@ function _update_ds!(ds, solver::Solver, medium::Union{IsotropicMedium,VTIMedium
     @. dszz = C13 * dxvx + C33 * dzvz
     @. dsxz = C55 * (dzvx + dxvz)
 end
-
-
 
 # TODO: Impl absorbing boundary conditions with forward and backward differences
 

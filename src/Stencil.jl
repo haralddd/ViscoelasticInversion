@@ -72,32 +72,32 @@ function to_device(device, fdm::Stencil)::Stencil
     return Stencil(xgrid,zgrid,xcoefs,zcoefs,fdm.x0,fdm.z0,fdm.x1,fdm.z1)
 end
 
-@kernel unsafe_indices = true function _ddx_kernel!(du, u, grid, coefs, x0, z0)
+@kernel inbounds = true unsafe_indices = true function _ddx_kernel!(du, u, grid, coefs, x0, z0)
     I = @index(Global, NTuple)
     m = I[1] + x0
     n = I[2] + z0
 
     val = zero(eltype(du))
-    @inbounds for i in eachindex(grid)
+    for i in eachindex(grid)
         c = coefs[i]
         g = grid[i]
-        @inbounds val += c * u[m+g, n]
+        val += c * u[m+g, n]
     end
-    @inbounds du[m, n] = val
+    du[m, n] = val
 end
 
-@kernel unsafe_indices = true function _ddz_kernel!(du, u, grid, coefs, x0, z0)
+@kernel inbounds = true unsafe_indices = true function _ddz_kernel!(du, u, grid, coefs, x0, z0)
     I = @index(Global, NTuple)
     m = I[1] + x0
     n = I[2] + z0
 
     val = zero(eltype(du))
-    @inbounds for i in eachindex(grid)
+    for i in eachindex(grid)
         c = coefs[i]
         g = grid[i]
-        @inbounds val += c * u[m, n+g]
+        val += c * u[m, n+g]
     end
-    @inbounds du[m, n] = val
+    du[m, n] = val
 end
 
 function ddx!(du, u, fdm::Stencil)
