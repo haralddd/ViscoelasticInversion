@@ -3,7 +3,7 @@ using Zygote
 using CUDA
 
 include("Model.jl")
-include("Solver.jl")
+include("Preallocated.jl")
 include("Source.jl")
 include("BoundaryCondition.jl")
 include(joinpath("..", "Stencil.jl"))
@@ -15,21 +15,21 @@ include(joinpath("..", "Stencil.jl"))
 #   doing separate update steps for the fields
 #   (update ∇v, update ds, in two separate steps).
 """
-    _update_ds!(ds, solver::Solver, model::T) where T<:AbstractModel
-Update the stress field `ds` from the velocity field using the given `solver` and `model`.
+    _update_ds!(ds, prealloc::prealloc, model::T) where T<:AbstractModel
+Update the stress field `ds` from the velocity field using the given `prealloc` and `model`.
 
 # Arguments
 - `ds::Array{T,3}`: The stress field to be updated.
-- `solver::Solver`: The solver object containing pre-allocated buffers.
+- `prealloc::prealloc`: The prealloc object containing pre-allocated buffers.
 - `model <: AbstractModel`: The model object containing the material properties.
 
 """
-function _update_ds!(ds, solver::Solver, model::T) where T<:AbstractModel
+function _update_ds!(ds, prealloc::Preallocated, model::T) where T<:AbstractModel
     error("_update_ds! not implemented for $T")
 end
 
 "Uses the whole stiffness matrix"
-function _update_ds!(ds, solver::Solver, model::TTIModel)
+function _update_ds!(ds, prealloc::Preallocated, model::TTIModel)
 
     # Use views for efficient indexing
     dsxx = @view ds[:, :, 1]
@@ -43,10 +43,10 @@ function _update_ds!(ds, solver::Solver, model::TTIModel)
     C35 = model.C35
     C55 = model.C55
 
-    dxvx = solver.dxvx
-    dzvx = solver.dzvx
-    dxvz = solver.dxvz
-    dzvz = solver.dzvz
+    dxvx = prealloc.dxvx
+    dzvx = prealloc.dzvx
+    dxvz = prealloc.dxvz
+    dzvz = prealloc.dzvz
 
     # 2. Compute ̇s(t) from ̇ε(t)
     @. dsxx = C11 * dxvx + C13 * dzvz + C15 * (dzvx + dxvz)
@@ -55,7 +55,7 @@ function _update_ds!(ds, solver::Solver, model::TTIModel)
 end
 
 "Uses the VTI parts of the stiffness matrix"
-function _update_ds!(ds, solver::Solver, model::Union{IsotropicModel,VTIModel})
+function _update_ds!(ds, prealloc::Preallocated, model::Union{IsotropicModel,VTIModel})
     # Use views for efficient indexing
     dsxx = @view ds[:, :, 1]
     dszz = @view ds[:, :, 2]
@@ -66,10 +66,10 @@ function _update_ds!(ds, solver::Solver, model::Union{IsotropicModel,VTIModel})
     C33 = model.C33
     C55 = model.C55
 
-    dxvx = solver.dxvx
-    dzvx = solver.dzvx
-    dxvz = solver.dxvz
-    dzvz = solver.dzvz
+    dxvx = prealloc.dxvx
+    dzvx = prealloc.dzvx
+    dxvz = prealloc.dxvz
+    dzvz = prealloc.dzvz
 
     # 2. Compute ̇s(t) from ̇ε(t)
     @. dsxx = C11 * dxvx + C13 * dzvz
@@ -79,22 +79,22 @@ end
 
 # TODO: Impl absorbing boundary conditions with forward and backward differences
 
-function stress_eq!(ds, v, s, p, t)
+function stress_eq!(ds, s, v, p, t)
 
     # Extract views of fields from parameters
     vx = @view v[:, :, 1]
     vz = @view v[:, :, 2]
 
     model = p.model
-    solver = p.solver
+    prealloc = p.prealloc
     fdm = p.fdm
     bc! = p.bc
     source! = p.source
 
-    dxvx = solver.dxvx
-    dzvx = solver.dzvx
-    dxvz = solver.dxvz
-    dzvz = solver.dzvz
+    dxvx = prealloc.dxvx
+    dzvx = prealloc.dzvx
+    dxvz = prealloc.dxvz
+    dzvz = prealloc.dzvz
 
     device = get_backend(dxvx)
     ddx!(dxvx, vx, fdm)
@@ -112,26 +112,26 @@ function stress_eq!(ds, v, s, p, t)
     KA.synchronize(device)
 
 
-    _update_ds!(ds, solver, model)
+    _update_ds!(ds, prealloc, model)
 
     return nothing # in-place update
 end
 
 
-function velocity_eq!(dv, v, s, p, t)
+function velocity_eq!(dv, s, v, p, t)
     # Handle the interior leapfrog timestep for velocity
     # Following Fichtner (2012)
 
 
     model = p.model
-    solver = p.solver
+    prealloc = p.prealloc
     fdm = p.fdm
     bc! = p.bc
     source! = p.source
 
-    dx_sxx = solver.dx_sxx
-    dx_szx = solver.dx_szx # = dz_sxz, but ddx is faster than ddz
-    dz_szz = solver.dz_szz
+    dx_sxx = prealloc.dx_sxx
+    dx_szx = prealloc.dx_szx # = dz_sxz, but ddx is faster than ddz
+    dz_szz = prealloc.dz_szz
 
     # buoyancy and forces must be interpolated before they are passed into the function
 
@@ -167,48 +167,12 @@ function velocity_eq!(dv, v, s, p, t)
     return nothing # in-place update
 end
 
-function construct_params(model, solver, fdm, bc, source)
+function construct_params(model, prealloc, fdm, bc, source)
     return (
         model = model, 
-        solver = solver, 
+        prealloc = prealloc, 
         fdm = fdm, 
         bc = bc, 
         source = source)
 end
-
-
-if abspath(PROGRAM_FILE) == @__FILE__
-    ## --- testing
-    Nx = 512
-    Nz = 512
-    ρ = 2600.0 # kg/m³
-    λ = 36.9e9 # Pa
-    μ = 30.65e9 # Pa
-    model = IsotropicModel(ρ, λ, μ, Nx, Nz)
-    solver = Solver(Nx,Nz)
-    # TODO: Look into if FDM and BC can be initialized together (or better initializer for Boundary Conditions)
-    fdm = Stencil(8, 1.0)
-    bc = ZeroBC(fdm, Nx, Nz)
-    source = RickerSource(40, 1, 256, 256)
-
-    p = construct_params(model, solver, fdm, bc, source)
-
-    v0 = zeros(size(solver.dxvx)..., 2)
-    s0 = zeros(size(solver.dx_sxx)..., 3)
-    tspan = (0,10)
-
-    dv = similar(v0)
-    ds = similar(s0)
-
-    println("Stress:")
-    @time stress_eq!(ds, v0, s0, p, 0.0)
-    @time stress_eq!(ds, v0, s0, p, 0.0)
-
-    println("Velocity:")
-    @time velocity_eq!(dv, v0, s0, p, 0.0)
-    @time velocity_eq!(dv, v0, s0, p, 0.0)
-
-    # prob = DynamicalODEProblem(stress_eq!, velocity_eq!, s0, v0, tspan, p=p)
-    # sol = solve(prob)
-end 
 

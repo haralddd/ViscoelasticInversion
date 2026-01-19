@@ -1,4 +1,5 @@
 using KernelAbstractions
+include(joinpath("..", "utils.jl"))
 
 abstract type AbstractModel end
 
@@ -10,11 +11,20 @@ abstract type AbstractModel end
     C55
 
     "Constructs homogeneous isotropic model from Lamé parameters"
-    function IsotropicModel(ρ::T, λ::T, μ::T, Nx, Nz) where T <: Real
-        b = fill(1/ρ, Nx, Nz)
-        C11 = C33 = fill(λ + 2μ, Nx, Nz)
-        C13 = fill(λ, Nx, Nz)
-        C55 = fill(μ, Nx, Nz)
+    function IsotropicModel(ρ::T, λ::T, μ::T, Nx, Nz; device=CPU()) where T <: Real
+        F = preferred_float(device)
+        b = KA.zeros(device, F, Nx,Nz)
+        C11 = similar(b)
+        C33 = similar(b)
+        C13 = similar(b)
+        C55 = similar(b)
+
+        fill!(b, 1/ρ)
+        fill!(C11, λ+2μ)
+        fill!(C33, λ+2μ)
+        fill!(C13, λ)
+        fill!(C55, μ)
+
         return new(b, C11, C13, C33, C55)
     end
 end

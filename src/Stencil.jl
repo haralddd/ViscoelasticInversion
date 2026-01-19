@@ -1,12 +1,6 @@
 import KernelAbstractions as KA
 using KernelAbstractions
-import SciMLBase: isautodifferentiable
-
-# Preferred device storage types in the stencil struct
-preferred_float(::CPU) = Float64
-preferred_float(::GPU) = Float32
-preferred_int(::CPU) = Int
-preferred_int(::GPU) = Int
+include("utils.jl")
 
 function _stencil(x::AbstractVector{<:Real}, x₀::Real, m::Integer)
     ℓ = 0:length(x)-1
@@ -16,16 +10,16 @@ function _stencil(x::AbstractVector{<:Real}, x₀::Real, m::Integer)
 end
 
 """
-    Stencil(order, h)
-    Stencil(xorder, zorder, Δx, Δz)
-    Stencil(xgrid, zgrid, x0, z0, Δx, Δz)
+    Stencil(order, h; device=CPU())
+    Stencil(xorder, zorder, Δx, Δz; device=CPU())
+    Stencil(xgrid, zgrid, x0, z0, Δx, Δz; device=CPU())
 
 High-order finite difference stencil for computing spatial derivatives.
 
 # Constructors
-- `Stencil(order, h)`: Creates isotropic stencil with given order and spacing
-- `Stencil(xorder, zorder, Δx, Δz)`: Creates anisotropic stencil with different orders and spacings
-- `Stencil(xgrid, zgrid, x0, z0, Δx, Δz)`: Creates stencil from custom grid points
+- `Stencil(order, h; device=CPU())`: Creates isotropic stencil with given order and spacing
+- `Stencil(xorder, zorder, Δx, Δz; device=CPU())`: Creates anisotropic stencil with different orders and spacings
+- `Stencil(xgrid, zgrid, x0, z0, Δx, Δz; device=CPU())`: Creates stencil from custom grid points
 
 # Arguments
 - `order`: Finite difference order (must be even)
@@ -33,6 +27,7 @@ High-order finite difference stencil for computing spatial derivatives.
 - `h`, `Δx`, `Δz`: Grid spacing
 - `xgrid`, `zgrid`: Grid point offsets
 - `x0`, `z0`: Reference point indices
+- `device`: Choose device to allocate indices and coefficients to
 
 # Examples
 ```Julia
@@ -63,47 +58,46 @@ struct Stencil
 
     Stencil(xgrid, zgrid, xcoefs, zcoefs, x0, z0, x1, z1) = new(xgrid, zgrid, xcoefs, zcoefs, x0, z0, x1, z1)
 
-    function Stencil(xgrid, zgrid, x0, z0, Δx, Δz)
+    function Stencil(xgrid, zgrid, x0, z0, Δx, Δz; device=CPU())
+
+        I = preferred_int(device)
+        F = preferred_float(device)
+        _xgrid = allocate(device, I, size(xgrid))
+        _zgrid = allocate(device, I, size(zgrid))
+        _xcoefs = similar(_xgrid, F)
+        _zcoefs = similar(_zgrid, F)
+
         xcoefs = _stencil(Rational.(xgrid), x0, 1) ./ Δx
         zcoefs = _stencil(Rational.(zgrid), z0, 1) ./ Δz
 
-        x0 = abs(min(minimum(xgrid), 0))
-        z0 = abs(min(minimum(zgrid), 0))
-        x1 = abs(max(maximum(xgrid), 0))
-        z1 = abs(max(maximum(zgrid), 0))
+        copyto!(_xgrid, Vector{I}(xgrid))
+        copyto!(_zgrid, Vector{I}(zgrid))
+        copyto!(_xcoefs, Vector{F}(xcoefs))
+        copyto!(_zcoefs, Vector{F}(zcoefs))
 
-        return Stencil(xgrid, zgrid, xcoefs, zcoefs, x0, z0, x1, z1)
+        x0 = I(abs(min(minimum(xgrid), 0)))
+        z0 = I(abs(min(minimum(zgrid), 0)))
+        x1 = I(abs(max(maximum(xgrid), 0)))
+        z1 = I(abs(max(maximum(zgrid), 0)))
+
+        return Stencil(_xgrid, _zgrid, _xcoefs, _zcoefs, x0, z0, x1, z1)
     end
 
-    function Stencil(xorder, zorder, Δx, Δz)
+    function Stencil(xorder, zorder, Δx, Δz; device=CPU())
         @assert iseven(xorder) && iseven(zorder) "Called Stencil constructor is only defined for even orders"
         xpad = xorder ÷ 2
         zpad = zorder ÷ 2
         xgrid = filter(!iszero, -xpad:xpad)
         zgrid = filter(!iszero, -zpad:zpad)
 
-        Stencil(xgrid, zgrid, 0, 0, Δx, Δz)
+        Stencil(xgrid, zgrid, 0, 0, Δx, Δz, device=device)
     end
 
-    function Stencil(order, h)
-        Stencil(order, order, h, h)
+    function Stencil(order, h; device=CPU())
+        Stencil(order, order, h, h, device=device)
     end
 end
 
-
-function to_device(device, fdm::Stencil)::Stencil
-    I = preferred_int(device)
-    F = preferred_float(device)
-    xgrid = allocate(device, I, size(fdm.xgrid))
-    zgrid = allocate(device, I, size(fdm.zgrid))
-    xcoefs = allocate(device, F, size(fdm.xcoefs))
-    zcoefs = allocate(device, F, size(fdm.zcoefs))
-    copyto!(xgrid, Vector{I}(fdm.xgrid))
-    copyto!(zgrid, Vector{I}(fdm.zgrid))
-    copyto!(xcoefs, Vector{F}(fdm.xcoefs))
-    copyto!(zcoefs, Vector{F}(fdm.zcoefs))
-    return Stencil(xgrid,zgrid,xcoefs,zcoefs,fdm.x0,fdm.z0,fdm.x1,fdm.z1)
-end
 
 @kernel inbounds = true unsafe_indices = true function _ddx_kernel!(du, u, grid, coefs, x0, z0)
     I = @index(Global, NTuple)
@@ -195,8 +189,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
     du_cpu_r = similar(u_cpu)
     du_gpu_r = similar(u_gpu)
 
-    fdm_cpu = Stencil(8,1)
-    fdm_gpu = to_device(get_backend(u_gpu), fdm_cpu)
+    fdm_cpu = Stencil(8,1, device=CPU())
 
     # Timing
     function time_fdm_kernel(u, iters, direction=:x, label="")
