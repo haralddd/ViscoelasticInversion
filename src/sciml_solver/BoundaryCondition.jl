@@ -56,6 +56,11 @@ struct PeriodicBC <: AbstractBC
     end
 end
 
+struct AbsorbingBC <: AbstractBC
+    # TODO: Implement
+    AbsorbingBC() = error("ABC Not implemented")
+end
+
 function (bc::ZeroBC)(du)
     du[bc.rx0, :] .= zero(eltype(du))
     du[bc.rx1, :] .= zero(eltype(du))

@@ -12,6 +12,7 @@ include(joinpath("..", "Stencil.jl"))
 #   doing separate update steps for the fields, 
 #   i.e. update ∇v, update ds, in two steps.
 """
+    _update_ds!(ds, solver::Solver, mediumT) where T<:AbstractMedium
 Update the strain field `ds` from the velocity field using the given `solver` and `medium`.
 
 # Arguments
@@ -81,11 +82,11 @@ function strain_eq!(ds, v, s, p, t)
     vx = @view v[:, :, 1]
     vz = @view v[:, :, 2]
 
-    medium = p.medium
+    model = p.model
     solver = p.solver
     fdm = p.fdm
-    bc! = p.bc!
-    source! = p.source!
+    bc! = p.bc
+    source! = p.source
 
     dxvx = solver.dxvx
     dzvx = solver.dzvx
@@ -108,7 +109,7 @@ function strain_eq!(ds, v, s, p, t)
     KA.synchronize(device)
 
 
-    _update_ds!(ds, solver, medium)
+    _update_ds!(ds, solver, model)
     source!(ds, t)
 
     return nothing # in-place update
@@ -156,12 +157,28 @@ function velocity_eq!(dv, v, s, p, t)
     return nothing # in-place update
 end
 
+function construct_params(model, solver, fdm, bc, source)
+    return (
+        :model => model, 
+        :solver => solver, 
+        :fdm => fdm, 
+        :bc => bc, 
+        :source => source)
+end
+
+
 if abspath(PROGRAM_FILE) == @__FILE__
     ## --- testing
-    Nx = 1000
-    Nz = 1000
-    C11 = C55 = fill(98.2, Nx, Nz) # GPa
-    C13 = fill(39.9, Nx, Nz)
+    Nx = 100
+    Nz = 100
+    λ = 36.9 # GPa
+    μ = 30.65 # GPa
+    isom = IsotropicModel(λ, μ, Nx, Nz)
+    solver = Solver(Nx,Nz)
+
+
+
+    p = construct_params(isom, solver, fdm, bc, source)
 
 end
 
