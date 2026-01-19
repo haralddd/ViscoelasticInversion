@@ -15,6 +15,39 @@ function _stencil(x::AbstractVector{<:Real}, x₀::Real, m::Integer)
     return A \ (ℓ .== m) # vector of weights w
 end
 
+"""
+    Stencil(order, h)
+    Stencil(xorder, zorder, Δx, Δz)
+    Stencil(xgrid, zgrid, x0, z0, Δx, Δz)
+
+High-order finite difference stencil for computing spatial derivatives.
+
+# Constructors
+- `Stencil(order, h)`: Creates isotropic stencil with given order and spacing
+- `Stencil(xorder, zorder, Δx, Δz)`: Creates anisotropic stencil with different orders and spacings
+- `Stencil(xgrid, zgrid, x0, z0, Δx, Δz)`: Creates stencil from custom grid points
+
+# Arguments
+- `order`: Finite difference order (must be even)
+- `xorder`, `zorder`: Orders in x and z directions (must be even)
+- `h`, `Δx`, `Δz`: Grid spacing
+- `xgrid`, `zgrid`: Grid point offsets
+- `x0`, `z0`: Reference point indices
+
+# Examples
+```Julia
+# 8th-order isotropic stencil with unit spacing
+stencil = Stencil(8, 1.0)
+
+# 8th-order in x, 4th-order in z with different spacings
+stencil = Stencil(8, 4, 1.0, 0.5)
+
+# Custom stencil from grid points
+xgrid = [-2, -1, 1, 2]
+zgrid = [-2, -1, 1, 2]
+stencil = Stencil(xgrid, zgrid, 0, 0, 1.0, 1.0)
+```
+"""
 struct Stencil
     xgrid
     zgrid
@@ -164,18 +197,6 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
     fdm_cpu = Stencil(8,1)
     fdm_gpu = to_device(get_backend(u_gpu), fdm_cpu)
-
-
-    # https://docs.sciml.ai/SciMLSensitivity/stable/manual/differential_equation_sensitivities/#Vector-Jacobian-Product-(VJP)-Choices
-    loss(u,du,fdm) = sum()
-    # For in-place functions, use autodiff_thunk
-    println("Testing reverse AD for in-place function...")
-
-
-    
-    
-    println("Gradient computation completed!")
-    display(du_cpu_r)
 
     # Timing
     function time_fdm_kernel(u, iters, direction=:x, label="")

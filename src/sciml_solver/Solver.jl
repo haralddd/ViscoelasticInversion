@@ -1,19 +1,32 @@
 
 """
-    Solver(Nx,Nz,init=zeros)
+    Solver(Nx, Nz, init=zeros)
 
-Preallocated solver struct for elastic wave equations. Solver constructor using grid sizes and an optional initializer. Might be omitted in the future if intermediate steps can be contained within the kernel.
+Preallocated solver buffers for elastic wave equations using finite difference stencils.
 
 # Arguments
-- `Nx,Nz`: Size in x and z direction
-- `init`: Initializer for the preallocated matrices.
+- `Nx`, `Nz`: Grid dimensions in x and z directions
+- `init`: Initializer function for preallocated matrices (default: `zeros`)
 
+# Fields
+The solver contains preallocated buffers for:
+- `dxvx`, `dzvx`: Spatial derivatives of x-velocity
+- `dxvz`, `dzvz`: Spatial derivatives of z-velocity  
+- `dx_sxx`, `dx_szx`: Spatial derivatives of stress tensor components
+- `dz_szz`: Spatial derivative of zz stress component
 
-Examples:`init=zeros` sets all fields to the defualt Julia zeros initializer, i.e. Float64.
-- `init=cuzeros` sets all fields to CUDA-allocated zeroed memory, usually Float32 on the device side.
+# Examples
+```Julia
+# CPU solver with Float64 arrays
+solver = Solver(64, 64, init=zeros)
 
+# GPU solver with CUDA arrays (usually Float32 on device)
+using CUDA
+solver = Solver(64, 64, init=cuzeros)
 
-
+# Custom initializer
+solver = Solver(128, 128, init=(Nx,Nz) -> randn(Float32, Nx, Nz))
+```
 """
 struct Solver
     dxvx
