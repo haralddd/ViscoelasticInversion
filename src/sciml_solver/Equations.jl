@@ -8,6 +8,15 @@ include("Source.jl")
 include("BoundaryCondition.jl")
 include(joinpath("..", "Stencil.jl"))
 
+# Wrapper struct for parameters to avoid large tuples
+struct WaveParams
+    model
+    prealloc
+    fdm
+    bc
+    source
+end
+
 # TODO: Create staggered grid
 # TODO: This implementation use intermediate arrays and broadcasting to update fields.
 #   Test whether one-step long kernels where global index is used,
@@ -79,7 +88,7 @@ end
 
 # TODO: Impl absorbing boundary conditions with forward and backward differences
 
-function stress_eq!(ds, s, v, p, t)
+function stress_eq!(ds, s, v, p::WaveParams, t)
 
     # Extract views of fields from parameters
     vx = @view v[:, :, 1]
@@ -118,7 +127,7 @@ function stress_eq!(ds, s, v, p, t)
 end
 
 
-function velocity_eq!(dv, s, v, p, t)
+function velocity_eq!(dv, s, v, p::WaveParams, t)
     # Handle the interior leapfrog timestep for velocity
     # Following Fichtner (2012)
 
@@ -156,9 +165,10 @@ function velocity_eq!(dv, s, v, p, t)
     dvx = @view dv[:, :, 1]
     dvz = @view dv[:, :, 2]
     
-    dvx = dx_sxx + dx_szx
-    dvz = dx_szx + dz_szz
+    @. dvx = dx_sxx + dx_szx
+    @. dvz = dx_szx + dz_szz
     source!(dvz, t)
+    KA.synchronize(device)
     
     b = model.b # buoyancy
     dvx .*= b
@@ -167,12 +177,4 @@ function velocity_eq!(dv, s, v, p, t)
     return nothing # in-place update
 end
 
-function construct_params(model, prealloc, fdm, bc, source)
-    return (
-        model = model, 
-        prealloc = prealloc, 
-        fdm = fdm, 
-        bc = bc, 
-        source = source)
-end
 

@@ -99,37 +99,105 @@ struct Stencil
 end
 
 
-@kernel inbounds = true unsafe_indices = true function _ddx_kernel!(du, u, grid, coefs, x0, z0)
+@kernel inbounds = true unsafe_indices = true function _ddx_kernel_padded!(du, u, grid, coefs, x0, z0)
     I = @index(Global, NTuple)
-    m = I[1] + x0
-    n = I[2] + z0
+    nx = I[1] + x0
+    nz = I[2] + z0
 
     val = zero(eltype(du))
     for i in eachindex(grid)
         c = coefs[i]
         g = grid[i]
-        val += c * u[m+g, n]
+        val += c * u[nx+g, nz]
     end
-    du[m, n] = val
+    du[nx, nz] = val
 end
 
-@kernel inbounds = true unsafe_indices = true function _ddz_kernel!(du, u, grid, coefs, x0, z0)
+@kernel inbounds = true unsafe_indices = true function _ddz_kernel_padded!(du, u, grid, coefs, x0, z0)
     I = @index(Global, NTuple)
-    m = I[1] + x0
-    n = I[2] + z0
+    nx = I[1] + x0
+    nz = I[2] + z0
 
     val = zero(eltype(du))
     for i in eachindex(grid)
         c = coefs[i]
         g = grid[i]
-        val += c * u[m, n+g]
+        val += c * u[nx, nz+g]
     end
-    du[m, n] = val
+    du[nx, nz] = val
+end
+
+@kernel function _ddx_kernel_periodic_left!(du, u, grid, coefs, Nx, Nz)
+    I = @index(Global, Cartesian)
+    nz = I[2]
+
+    val = zero(eltype(du))
+    for i in eachindex(grid)
+        c = coefs[i]
+        g = grid[i]
+
+        nx = I[1] + g
+        nx += (nx < 1) ? Nx : 0
+
+        val += c * u[nx, nz]
+    end
+    du[I] = val
+end
+
+@kernel function _ddx_kernel_periodic_right!(du, u, grid, coefs, Nx, Nz)
+    I = @index(Global, Cartesian)
+    nz = I[2]
+
+    val = zero(eltype(du))
+    for i in eachindex(grid)
+        c = coefs[i]
+        g = grid[i]
+
+        nx = Nx - I[1] + 1 + g
+        nx += (nx > Nx) ? -Nx : 0
+        
+        val += c * u[nx, nz]
+    end
+    du[I] = val
+end
+
+@kernel function _ddx_kernel_periodic_top!(du, u, grid, coefs, Nx, Nz)
+    I = @index(Global, Cartesian)
+    nx = I[1]
+
+    val = zero(eltype(du))
+    for i in eachindex(grid)
+        c = coefs[i]
+        g = grid[i]
+
+        nz = I[2] + g
+        nz += (nz < 1) ? Nz : 0
+
+        val += c * u[nx, nz]
+    end
+    du[I] = val
+end
+
+@kernel function _ddx_kernel_periodic_bottom!(du, u, grid, coefs, Nx, Nz)
+    I = @index(Global, Cartesian)
+    nx = I[1]
+
+    val = zero(eltype(du))
+    for i in eachindex(grid)
+        c = coefs[i]
+        g = grid[i]
+
+        nz = Nz - I[2] + 1 + g
+        nz += (nz > Nz) ? -Nz : 0
+        
+        val += c * u[nx, nz]
+    end
+    du[I] = val
 end
 
 function ddx!(du, u, fdm::Stencil)
     device = get_backend(du)
-    kernel! = _ddx_kernel!(device, 64)
+    kernel! = _ddx_kernel_padded!(device, 64)
     Nx, Nz = size(du)
     ndrange = (Nx - fdm.x0 - fdm.x1, Nz - fdm.z0 - fdm.z1)
     kernel!(du, u, fdm.xgrid, fdm.xcoefs, fdm.x0, fdm.z0; ndrange=ndrange)
@@ -137,12 +205,13 @@ function ddx!(du, u, fdm::Stencil)
 end
 function ddz!(du, u, fdm::Stencil)
     device = get_backend(du)
-    kernel! = _ddz_kernel!(device, 64)
+    kernel! = _ddz_kernel_padded!(device, 64)
     Nx, Nz = size(du)
     ndrange = (Nx - fdm.x0 - fdm.x1, Nz - fdm.z0 - fdm.z1)
     kernel!(du, u, fdm.zgrid, fdm.zcoefs, fdm.x0, fdm.z0; ndrange=ndrange)
     return nothing
 end
+
 
 function ddx_synced!(du, u, fdm::Stencil)
     device = get_backend(du)
@@ -157,12 +226,6 @@ function ddz_synced!(du, u, fdm::Stencil)
     return nothing
 end
 
-function test_timestep!(du, u, fdm::Stencil)
-    ddx_synced!(du, u, fdm)
-    u = u + du
-    return nothing
-end
-
 
 
 if abspath(PROGRAM_FILE) == @__FILE__
@@ -170,8 +233,90 @@ if abspath(PROGRAM_FILE) == @__FILE__
     using Random
     using CUDA
     using Statistics
-    using Enzyme
     using ProgressMeter
+
+    # Test periodic boundary kernels
+    function test_periodic_kernels()
+        println("Testing Periodic Boundary Kernels")
+        
+        # Small test grid for verification
+        Nx, Nz = 16, 16
+        u_test = rand(1.0:10.0, Nx, Nz)
+        du_test = similar(u_test)
+        du_ref = similar(u_test)
+        
+        # Create stencil
+        fdm = Stencil(4, 1.0)  # 4th order for simpler testing
+        
+        println("Original u at boundaries:")
+        println("Left edge: ", u_test[1:3, 8])
+        println("Right edge: ", u_test[Nx-2:Nx, 8])
+        println("Top edge: ", u_test[8, 1:3])
+        println("Bottom edge: ", u_test[8, Nz-2:Nz])
+        
+        # Test CPU periodic kernels
+        device = CPU()
+        
+        # Test left boundary kernel
+        du_left = zeros(4, Nz)  # Only boundary region
+        kernel_left = _ddx_kernel_periodic_left!(device)
+        kernel_left(du_left, u_test, fdm.xgrid, fdm.xcoefs, Nx, Nz, ndrange=(4, Nz))
+        
+        # Test right boundary kernel  
+        du_right = zeros(4, Nz)  # Only boundary region
+        kernel_right = _ddx_kernel_periodic_right!(device)
+        kernel_right(du_right, u_test, fdm.xgrid, fdm.xcoefs, Nx, Nz, ndrange=(4, Nz))
+        
+        # Test top boundary kernel
+        du_top = zeros(Nx, 4)  # Only boundary region
+        kernel_top = _ddx_kernel_periodic_top!(device)
+        kernel_top(du_top, u_test, fdm.xgrid, fdm.xcoefs, Nx, Nz, ndrange=(Nx, 4))
+        
+        # Test bottom boundary kernel
+        du_bottom = zeros(Nx, 4)  # Only boundary region
+        kernel_bottom = _ddx_kernel_periodic_bottom!(device)
+        kernel_bottom(du_bottom, u_test, fdm.xgrid, fdm.xcoefs, Nx, Nz, ndrange=(Nx, 4))
+        
+        println("\nPeriodic kernel results:")
+        println("Left boundary result: ", du_left[1:3, 8])
+        println("Right boundary result: ", du_right[1:3, 8])
+        println("Top boundary result: ", du_top[8, 1:3])
+        println("Bottom boundary result: ", du_bottom[8, 1:3])
+        
+        # Test GPU version if available
+        if CUDA.has_cuda()
+            println("\nTesting GPU periodic kernels...")
+            u_gpu = cu(u_test)
+            du_gpu = similar(u_gpu)
+            
+            gpu_device = CUDABackend()
+            
+            # Test left boundary on GPU
+
+            fdm = Stencil(4, 1.0, device=gpu_device)
+            kernel_left_gpu = _ddx_kernel_periodic_left!(gpu_device)
+            kernel_left_gpu(du_gpu, u_gpu, fdm.xgrid, fdm.xcoefs, Nx, Nz, ndrange=(4, Nz))
+            
+            println("GPU left boundary result: ", Array(du_gpu[1:3, 8]))
+            
+            # Verify CPU vs GPU match
+            cpu_result = du_left[1:3, 8]
+            gpu_result = Array(du_gpu[1:3, 8])
+            
+            if maximum(abs, cpu_result .- gpu_result) < 1e-6
+                println("✓ CPU and GPU results match!")
+            else
+                println("✗ CPU and GPU results differ!")
+                println("CPU: ", cpu_result)
+                println("GPU: ", gpu_result)
+            end
+        end
+        
+        println("\nPeriodic kernel test completed!")
+    end
+    
+    # Run the test
+    test_periodic_kernels()
 
     # Testparams
     M = 1024
@@ -196,8 +341,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
         du = similar(u)
 
         device = get_backend(u)
-        fdm = Stencil(8, 1.0)
-        fdm = to_device(device, fdm)
+        fdm = Stencil(8, 1.0, device=device)
         if direction == :x
             func = (du, u) -> ddx_synced!(du, u, fdm)
         else
