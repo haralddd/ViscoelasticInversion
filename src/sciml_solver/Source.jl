@@ -11,23 +11,32 @@ struct RickerSource <: AbstractSource
     coefs
     tspan
 
-    function RickerSource(freq, tc, nx, nz; thresh=1e-6, device=CPU())
+    function RickerSource(freq, tc, grid, coefs; thresh=1e-6)
         t1 = find_zero(t -> abs(_ricker(freq, t - tc)) - thresh, tc - 1.0/freq)
         t2 = find_zero(t -> abs(_ricker(freq, t - tc)) - thresh, tc + 1.0/freq)
 
-        grid = CartesianIndices((nx,nz))
-        F = preferred_float(device)
-        coefs = KA.ones(device, F, 1,1)
+        return new(freq, tc, grid, coefs, (t1, t2))
+    end
 
-        return new(freq,tc,grid,coefs,(t1,t2))
+    function RickerSource(freq, tc, nx::Int, nz::Int; thresh=1e-6, device=CPU())
+
+        I = preferred_int(device)
+        F = preferred_float(device)
+
+        grid = allocate(device, Tuple{I, I}, (1, 1))
+        coefs = allocate(device, F, (1,1))
+        copyto!(grid, [(nx, nz)])
+        copyto!(coefs, [1.0])
+
+        return RickerSource(freq, tc, grid, coefs, thresh=thresh)
     end
 end
 
 @kernel function inject_source_kernel!(du, val, grid, coefs)
     I = @index(Global, Cartesian)
-    g = grid[I]
+    gx, gz = grid[I]
     c = coefs[I]
-    du[g] += c * val
+    du[gx, gz] += c * val
 end
 
 function (s::RickerSource)(du, t)
@@ -36,7 +45,7 @@ function (s::RickerSource)(du, t)
         val = _ricker(s.freq, τ)
         
         # Debug output
-        @debug "Injecting source: t=$t, τ=$τ, val=$val, pos=($(s.nx), $(s.nz))"
+        @debug "Injecting source: t=$t, τ=$τ, val=$val at grid point $(s.grid)"
         
         # Use kernel to avoid scalar indexing issues with CUDA
         device = get_backend(du)

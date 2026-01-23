@@ -44,6 +44,10 @@ catch e
     nothing
 end
 
+max_val = maximum(stack([s[2] for s in sol.saveval]))
+argmax_val = argmax(stack([s[2] for s in sol.saveval]))
+println("Max value: $max_val at index $argmax_val")
+
 gr()
 
 Δt = 0.01

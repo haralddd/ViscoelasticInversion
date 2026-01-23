@@ -51,6 +51,33 @@ struct PeriodicBC <: AbstractBC
     end
 end
 
+function (bc::PeriodicBC)(du)
+    # Apply periodic boundary conditions to derivative array
+    # This handles the boundary regions that aren't computed by the main stencil
+    
+    Nx, Nz = size(du)
+    fdm = bc.fdm
+    device = get_backend(du)
+    
+    # Left boundary (copy from right)
+    kernel_left = _ddx_kernel_periodic_left!(device)
+    kernel_left(du, du, fdm.xgrid, fdm.xcoefs, Nx, Nz; ndrange=(fdm.x0, Nz))
+    
+    # Right boundary (copy from left)  
+    kernel_right = _ddx_kernel_periodic_right!(device)
+    kernel_right(du, du, fdm.xgrid, fdm.xcoefs, Nx, Nz; ndrange=(fdm.x1, Nz))
+    
+    # Top boundary (copy from bottom)
+    kernel_top = _ddx_kernel_periodic_top!(device)
+    kernel_top(du, du, fdm.zgrid, fdm.zcoefs, Nx, Nz; ndrange=(Nx, fdm.z0))
+    
+    # Bottom boundary (copy from top)
+    kernel_bottom = _ddx_kernel_periodic_bottom!(device)
+    kernel_bottom(du, du, fdm.zgrid, fdm.zcoefs, Nx, Nz; ndrange=(Nx, fdm.z1))
+    
+    return nothing
+end
+
 
 struct AbsorbingBC <: AbstractBC
     # TODO: Implement

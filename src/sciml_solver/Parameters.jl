@@ -51,8 +51,11 @@ function Parameters(;kwargs...)
     source = get(kwargs, :source, RickerSource(40.0,0.2,Nx÷2,Nz÷2))
     device = get(kwargs, :device, CPU())
     
+    # Create default isotropic model if not provided
+    model = get(kwargs, :model, IsotropicModel(2000.0, 1e9, 1e9, Nx, Nz, device=device))
+    
     prealloc = Preallocated(Nx, Nz, device=device)
     fdm = Stencil(fd_order_x, fd_order_z, dx, dz, device=device)
-    bc = get_bc(bc_type, fdm, Nx, Nz)
+    bc = ViscoelasticInversion.get_bc(bc_type, fdm, Nx, Nz)
     return Parameters(Nx, Nz, model, prealloc, fdm, bc, source)
 end
