@@ -1,6 +1,8 @@
 using Revise
 using ViscoelasticInversion
 using CUDA
+using Dates
+using Plots
 
 # Choose device
 device = CUDA.has_cuda() ? CUDABackend() : CPU()
@@ -35,30 +37,56 @@ sol = try
 catch e
     dumpfile = open("stacktrace.log", "w")
     Base.showerror(dumpfile, e, catch_backtrace())
+    print(read(dumpfile, String))
+    close(dumpfile)
     println("Error dumped to `stacktrace.log`")
 
     nothing
 end
 
-saved_values = sol.saveval
-gr()  # GR backend is more stable
+gr()
 
 Δt = 0.01
 b = 1/ρ
 # Create animation of velocity magnitude
-anim = @animate for (t, v) in zip(saved_values.t, saved_values.saveval)
-    
-    heatmap(v[:,:,2],
-            title="Velocity Magnitude at t=$(round(t, digits=3))",
+anim = @animate for (t, val) in zip(sol.t, sol.saveval)
+    s = val[1]
+    v = val[2]
+
+    sxx = @view s[:,:,1]
+    szz = @view s[:,:,2]
+    sxz = @view s[:,:,3]
+
+    vx = @view v[:,:,1]
+    vz = @view v[:,:,2]
+
+    hm_sxx = heatmap(sxx,
+            title="sxx",
             clims=(-b,b)
     )
+    hm_szz = heatmap(szz,
+            title="szz",
+            clims=(-b,b)
+    )
+    hm_sxz = heatmap(sxz,
+            title="sxz",
+            clims=(-b,b)
+    )
+
+    hm_vx = heatmap(vx,
+            title="vx",
+            clims=(-b,b)
+    )
+    hm_vz = heatmap(vz,
+            title="vz",
+            clims=(-b,b)
+    )
+    plot(hm_sxx, hm_szz, hm_sxz, hm_vx, hm_vz, layout=(2, 3), size=(1200, 800), title="Time: $(round(t, digits=3))s")
 end
 
 
 const OUTPUT_FOLDER = "output"
-import Base./
-/(a::String,b::String) = joinpath(a,b)
 
 # Save animation
-gif(anim, OUTPUT_FOLDER / "wave_propagation.gif", fps=10)
+gif(anim, joinpath(OUTPUT_FOLDER, "wave_propagation.gif"), fps=10)
 println("Animation saved as wave_propagation.gif")

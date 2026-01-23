@@ -1,8 +1,10 @@
 module ViscoelasticInversion
 
 using Roots
-using OrdinaryDiffEq
 using KernelAbstractions
+using OrdinaryDiffEq
+using DiffEqCallbacks
+
 KA = KernelAbstractions
 import Base./ # For joinpath(string...) convenience
 

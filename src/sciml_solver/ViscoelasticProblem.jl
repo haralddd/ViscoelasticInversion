@@ -162,7 +162,7 @@ function velocity_eq!(dv, s, v, p::Parameters, t)
 end
 
 
-function make_problem(parameters::Parameters, s0=nothing, v0=nothing, tspan=(0.0, 2.0))
+function make_problem(parameters::Parameters; s0=nothing, v0=nothing, tspan=(0.0, 2.0))
     Nx = parameters.Nx
     Nz = parameters.Nz
     if s0 === nothing
@@ -183,8 +183,8 @@ end
 
 
 function solve_problem(problem)
-    saved_values = SavedValues(Float64, Array{Float32,3})
-    cb = SavingCallback((u,t,i)-> Array(u.x), saved_values, saveat=0.0:0.01:2.0)
+    saved_values = SavedValues(Float64, Tuple{Array, Array})
+    cb = SavingCallback((u,t,i)-> (Array(u.x[1]), Array(u.x[2])), saved_values, saveat=0.0:0.01:2.0)
     solve(problem, callback=cb, tstops=[1.0], save_on=false, save_start=false, save_end=false)
     return saved_values
 end
