@@ -57,3 +57,17 @@ struct AbsorbingBC <: AbstractBC
     AbsorbingBC() = error("ABC Not implemented")
 end
 
+
+function get_bc(bc_type::Symbol, fdm, Nx, Nz)
+    if bc_type == :dirichlet
+        return DirichletBC(fdm, Nx, Nz)
+    elseif bc_type == :neumann
+        return NeumannBC(fdm, Nx, Nz)
+    elseif bc_type == :periodic
+        return PeriodicBC(fdm, Nx, Nz)
+    elseif bc_type == :absorbing
+        return AbsorbingBC()
+    else
+        error("Unknown boundary condition type: $bc_type")
+    end
+end

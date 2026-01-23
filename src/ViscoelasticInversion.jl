@@ -2,8 +2,8 @@ module ViscoelasticInversion
 
 using Roots
 using OrdinaryDiffEq
-
-import KernelAbstractions as KA
+using KernelAbstractions
+KA = KernelAbstractions
 import Base./ # For joinpath(string...) convenience
 
 include("common/utils.jl")
@@ -11,14 +11,17 @@ include("common/Stencil.jl")
 
 include("sciml_solver/Preallocated.jl")
 include("sciml_solver/Source.jl")
-include("sciml_solver/BoundaryCondition.jl")
-include("sciml_solver/Model.jl")
-include("sciml_solver/NeuralPDEModel.jl")
+include("sciml_solver/BoundaryConditions.jl")
+include("sciml_solver/Models.jl")
+include("sciml_solver/Parameters.jl")
 include("sciml_solver/ViscoelasticProblem.jl")
 
+export Stencil
 export Preallocated
 export RickerSource
 export AbstractBC, DirichletBC, NeumannBC, PeriodicBC, AbsorbingBC
-export ViscoelasticProblem
+export Parameters
+export AbstractModel, IsotropicModel, VTIModel, TTIModel
+export make_problem, solve_problem
 
 end # module

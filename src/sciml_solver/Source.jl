@@ -1,7 +1,5 @@
 abstract type AbstractSource end
 
-
-
 function _ricker(f, t)
     return (1.0 - 2.0 * (π * f * t)^2) * exp(-(π * f * t)^2)
 end
@@ -18,7 +16,8 @@ struct RickerSource <: AbstractSource
         t2 = find_zero(t -> abs(_ricker(freq, t - tc)) - thresh, tc + 1.0/freq)
 
         grid = CartesianIndices((nx,nz))
-        coefs = KA.ones(device, 1,1)
+        F = preferred_float(device)
+        coefs = KA.ones(device, F, 1,1)
 
         return new(freq,tc,grid,coefs,(t1,t2))
     end

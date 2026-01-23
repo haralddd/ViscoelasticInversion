@@ -7,8 +7,7 @@ Parameter setup struct for the ViscoelasticProblem solver
 # Fields
 - `model`: Model object
 - `prealloc`: Preallocated storage
-- `fdm_x`: Finite difference method in x-direction
-- `fdm_z`: Finite difference method in z-direction
+- `fdm`: Finite difference stencil
 - `bc`: Boundary conditions
 - `source`: Source object
 
@@ -19,8 +18,9 @@ Parameter setup struct for the ViscoelasticProblem solver
 - `dz::Float64`: Grid spacing in z-direction
 - `fd_order_x::Int`: Finite difference order
 - `fd_order_z::Int`: Finite difference order
-- `bc::T where T<:AbstractBC`: Boundary conditions
-- `source::T where T<:AbstractSource`: Source object
+- `bc <:AbstractBC`: Boundary conditions
+- `source <:AbstractSource`: Source object
+- `device <:KernelAbstractions.Backend`: Device to use for computation
 
 # Example
 ```julia
@@ -28,10 +28,11 @@ params = Parameters(Nx=100, Nz=50, dx=10.0, dz=10.0)
 ```
 """
 struct Parameters
+    Nx
+    Nz
     model
     prealloc
-    fdm_x
-    fdm_z
+    fdm
     bc
     source
 end
@@ -46,11 +47,12 @@ function Parameters(;kwargs...)
 
     fd_order_x = get(kwargs, :fd_order_x, 8)
     fd_order_z = get(kwargs, :fd_order_z, 8)
-    bc = get(kwargs, :bc, PeriodicBC())
-    source = get(kwargs, :source, Source())
+    bc_type = get(kwargs, :bc, :periodic)
+    source = get(kwargs, :source, RickerSource(40.0,0.2,Nx÷2,Nz÷2))
+    device = get(kwargs, :device, CPU())
     
-    prealloc = Preallocated(Nx, Nz)
-    fdm_x = Stencil(fd_order_x, dx)
-    fdm_z = Stencil(fd_order_z, dz)
-    return Parameters(model, prealloc, fdm_x, fdm_z, bc, source)
+    prealloc = Preallocated(Nx, Nz, device=device)
+    fdm = Stencil(fd_order_x, fd_order_z, dx, dz, device=device)
+    bc = get_bc(bc_type, fdm, Nx, Nz)
+    return Parameters(Nx, Nz, model, prealloc, fdm, bc, source)
 end

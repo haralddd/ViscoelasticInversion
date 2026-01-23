@@ -72,7 +72,7 @@ end
 
 # TODO: Impl absorbing boundary conditions with forward and backward differences
 
-function stress_eq!(ds, s, v, p::WaveParams, t)
+function stress_eq!(ds, s, v, p::Parameters, t)
 
     # Extract views of fields from parameters
     vx = @view v[:, :, 1]
@@ -111,7 +111,7 @@ function stress_eq!(ds, s, v, p::WaveParams, t)
 end
 
 
-function velocity_eq!(dv, s, v, p::WaveParams, t)
+function velocity_eq!(dv, s, v, p::Parameters, t)
     # Handle the interior leapfrog timestep for velocity
     # Following Fichtner (2012)
 
@@ -161,12 +161,30 @@ function velocity_eq!(dv, s, v, p::WaveParams, t)
     return nothing # in-place update
 end
 
-function make_problem(s0, v0, m0::T) where T<:AbstractModel
 
-    prob = DynamicalODEProblem(
+function make_problem(parameters::Parameters, s0=nothing, v0=nothing, tspan=(0.0, 2.0))
+    Nx = parameters.Nx
+    Nz = parameters.Nz
+    if s0 === nothing
+        s0 = similar(parameters.model.b, (Nx, Nz, 3))
+        s0 .= zero(eltype(s0))
+    end
+    if v0 === nothing
+        v0 = similar(parameters.model.b, (Nx, Nz, 2))
+        v0 .= zero(eltype(v0))
+    end
+
+    return DynamicalODEProblem(
         stress_eq!, velocity_eq!, 
         s0, v0, 
-        tspan, p)
-    return prob
+        tspan, parameters
+    )
 end
 
+
+function solve_problem(problem)
+    saved_values = SavedValues(Float64, Array{Float32,3})
+    cb = SavingCallback((u,t,i)-> Array(u.x), saved_values, saveat=0.0:0.01:2.0)
+    solve(problem, callback=cb, tstops=[1.0], save_on=false, save_start=false, save_end=false)
+    return saved_values
+end

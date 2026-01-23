@@ -1,6 +1,3 @@
-using KernelAbstractions
-include(joinpath("..", "utils.jl"))
-
 abstract type AbstractModel end
 
 @kwdef struct IsotropicModel <: AbstractModel
