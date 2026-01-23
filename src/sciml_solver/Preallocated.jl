@@ -1,9 +1,3 @@
-
-using KernelAbstractions
-import KernelAbstractions as KA
-
-include(joinpath("..", "utils.jl"))
-
 """
     Preallocated(Nx, Nz; device=CPU())
 
@@ -27,6 +21,9 @@ preallocated = Preallocated(64, 64, device=CPU())
 # GPU Preallocated with CUDA arrays (usually Float32 on device)
 using CUDA
 preallocated = Preallocated(64, 64, device=CUDA())
+
+# Make preallocated struct based on initial stress or velocity
+preallocated = Preallocated(s0)
 ```
 """
 struct Preallocated
@@ -52,4 +49,11 @@ function Preallocated(Nx, Nz; device=CPU())
     dz_szz = KA.zeros(device, T, Nx, Nz)
     
     return Preallocated(dxvx, dzvx, dxvz, dzvz, dx_sxx, dx_szx, dz_szz)
+end
+
+function Preallocated(s0)
+    Nx, Nz = size(s0)[1], size(s0)[2]
+    device = get_backend(s0)
+    
+    return Preallocated(Nx, Nz; device=device)
 end

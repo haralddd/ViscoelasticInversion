@@ -1,8 +1,4 @@
-include("Equations.jl")
-using CUDA
-using Plots
-using DiffEqCallbacks
-using Dates
+using ViscoelasticInversion
 
 # Choose device
 device = CUDA.has_cuda() ? CUDABackend() : CPU()
@@ -22,7 +18,7 @@ fdm = Stencil(8, h, device=device)
 # bc = PeriodicBC(fdm, Nx, Nz)
 bc = NeumannBC(fdm, Nx, Nz)
 tc = 1.0
-fc = 10
+fc = 10.0
 source = RickerSource(fc, tc, Nx÷2, Nz÷2)
 
 p = WaveParams(model, preallocated, fdm, bc, source)
@@ -55,6 +51,7 @@ catch e
     println("Full error:")
     dumpfile = open("stacktrace.log", "w")
     Base.showerror(dumpfile, e, catch_backtrace())
+    println("Dumped to `stacktrace.log`")
     # println("\nStack trace:")
     # for (i, frame) in enumerate(stacktrace(catch_backtrace()))
     #     println("$i. $frame")

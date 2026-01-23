@@ -1,7 +1,7 @@
 #=
 Use NeuralPDE together with Flux to define the model and optimization problem symbolically.
 
-
+Just testing
 =#
 using ModelingToolkit, NeuralPDE, Lux, Optimization, OptimizationOptimJL, LineSearches, Plots
 

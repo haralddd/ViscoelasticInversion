@@ -1,32 +1,26 @@
-using Roots
-using KernelAbstractions
+abstract type AbstractSource end
+
+
 
 function _ricker(f, t)
     return (1.0 - 2.0 * (π * f * t)^2) * exp(-(π * f * t)^2)
 end
 
-struct RickerSource
+struct RickerSource <: AbstractSource
     freq
     tc
     grid
     coefs
     tspan
 
-    function RickerSource(freq, tc, xs, x0; width=0, thresh=1e-6)
+    function RickerSource(freq, tc, nx, nz; thresh=1e-6, device=CPU())
         t1 = find_zero(t -> abs(_ricker(freq, t - tc)) - thresh, tc - 1.0/freq)
         t2 = find_zero(t -> abs(_ricker(freq, t - tc)) - thresh, tc + 1.0/freq)
-        @assert isodd(width) ""
 
-        search
+        grid = CartesianIndices((nx,nz))
+        coefs = KA.ones(device, 1,1)
 
-        grid = CartesianIndices((-width:+width, -width:width)) .+ CartesianIndex(nx, nz)
-
-        # FIXME: Correct interpolation of source
-        coefs = ones()
-
-        coefs ./= sum(coefs)
-
-        return new(freq,tc,nx,nz,(t1,t2), width)
+        return new(freq,tc,grid,coefs,(t1,t2))
     end
 end
 
@@ -34,7 +28,7 @@ end
     I = @index(Global, Cartesian)
     g = grid[I]
     c = coefs[I]
-    du[g] += val
+    du[g] += c * val
 end
 
 function (s::RickerSource)(du, t)
@@ -48,14 +42,9 @@ function (s::RickerSource)(du, t)
         # Use kernel to avoid scalar indexing issues with CUDA
         device = get_backend(du)
         kernel! = inject_source_kernel!(device)
-        kernel!(du, val, s.nx, s.nz; ndrange=(width,width))
+        kernel!(du, val, s.grid, s.coefs; ndrange=size(s.coefs))
         KA.synchronize(device)
         
-        # Verify injection
-        @debug begin
-            injected_val = du[s.nx, s.nz]
-            "Injected value at ($(s.nx), $(s.nz)): $injected_val"
-        end
     end
     return nothing
 end

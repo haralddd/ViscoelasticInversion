@@ -1,21 +1,5 @@
-using OrdinaryDiffEq
-using Zygote
-using CUDA
 
-include("Model.jl")
-include("Preallocated.jl")
-include("Source.jl")
-include("BoundaryCondition.jl")
-include(joinpath("..", "Stencil.jl"))
 
-# Wrapper struct for parameters to avoid large tuples
-struct WaveParams
-    model
-    prealloc
-    fdm
-    bc
-    source
-end
 
 # TODO: Create staggered grid
 # TODO: This implementation use intermediate arrays and broadcasting to update fields.
@@ -177,4 +161,12 @@ function velocity_eq!(dv, s, v, p::WaveParams, t)
     return nothing # in-place update
 end
 
+function make_problem(s0, v0, m0::T) where T<:AbstractModel
+
+    prob = DynamicalODEProblem(
+        stress_eq!, velocity_eq!, 
+        s0, v0, 
+        tspan, p)
+    return prob
+end
 
