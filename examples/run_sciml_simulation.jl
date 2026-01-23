@@ -3,6 +3,7 @@ using ViscoelasticInversion
 using CUDA
 using Dates
 using Plots
+using DiffEqCallbacks
 
 # Choose device
 device = CUDA.has_cuda() ? CUDABackend() : CPU()
@@ -20,7 +21,7 @@ preallocated = Preallocated(Nx, Nz, device=device)
 # TODO: Look into if FDM and BC can be initialized together (or better initializer for Boundary Conditions)
 fdm = Stencil(8, h, device=device)
 # bc = PeriodicBC(fdm, Nx, Nz)
-bc = NeumannBC(fdm, Nx, Nz)
+bc = PeriodicBC(fdm, Nx, Nz)
 tc = 1.0
 fc = 10.0
 source = RickerSource(fc, tc, Nx÷2, Nz÷2; device=device)
@@ -32,8 +33,14 @@ sol = try
     timestamp = now()
     printstyled("--- $timestamp: Starting Solve ---\n", bold=true, color=:green)
     prob = make_problem(p, tspan=tspan)
-
-    solve_problem(prob)
+    saved_values = SavedValues(Float64, Tuple{Array, Array})
+    
+    cb = SavingCallback((u,t,i)-> (Array(u.x[1]), Array(u.x[2])), saved_values, saveat=saveat)
+    
+    solve(problem, alg, callback=cb, 
+          dt=dt,
+          tstops=[tspan[1], tc, tspan[2]], 
+          save_on=false, save_start=false, save_end=false)
 catch e
     dumpfile = open("stacktrace.log", "w")
     Base.showerror(dumpfile, e, catch_backtrace())
@@ -47,8 +54,6 @@ end
 max_val = maximum(stack([s[2] for s in sol.saveval]))
 argmax_val = argmax(stack([s[2] for s in sol.saveval]))
 println("Max value: $max_val at index $argmax_val")
-
-gr()
 
 Δt = 0.01
 b = 1/ρ

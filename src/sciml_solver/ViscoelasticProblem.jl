@@ -95,9 +95,6 @@ function stress_eq!(ds, s, v, p::Parameters, t)
     ddx!(dxvz, vz, fdm)
     ddz!(dzvz, vz, fdm)
 
-    # Only needed for periodic boundary conditions
-    bc! isa PeriodicBC && KA.synchronize(device)
-
     bc!(dxvx)
     bc!(dzvx)
     bc!(dxvz)
@@ -138,8 +135,6 @@ function velocity_eq!(dv, s, v, p::Parameters, t)
     ddx!(dx_szx, szx, fdm) # = dx_sxz
     ddz!(dz_szz, szz, fdm)
 
-    bc! isa PeriodicBC && KA.synchronize(device)
-
     bc!(dx_sxx)
     bc!(dx_szx)
     bc!(dz_szz)
@@ -179,12 +174,4 @@ function make_problem(parameters::Parameters; s0=nothing, v0=nothing, tspan=(0.0
         s0, v0, 
         tspan, parameters
     )
-end
-
-
-function solve_problem(problem)
-    saved_values = SavedValues(Float64, Tuple{Array, Array})
-    cb = SavingCallback((u,t,i)-> (Array(u.x[1]), Array(u.x[2])), saved_values, saveat=0.0:0.01:2.0)
-    solve(problem, callback=cb, tstops=[1.0], save_on=false, save_start=false, save_end=false)
-    return saved_values
 end
