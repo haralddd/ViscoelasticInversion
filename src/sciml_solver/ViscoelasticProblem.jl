@@ -80,7 +80,8 @@ function stress_eq!(ds, s, v, p::Parameters, t)
 
     model = p.model
     prealloc = p.prealloc
-    fdm = p.fdm
+    fdm⁺ = p.fdm_plus
+    fdm⁻ = p.fdm_minus
     bc! = p.bc
     source! = p.source
 
@@ -90,10 +91,10 @@ function stress_eq!(ds, s, v, p::Parameters, t)
     dzvz = prealloc.dzvz
 
     device = get_backend(dxvx)
-    ddx!(dxvx, vx, fdm)
-    ddz!(dzvx, vx, fdm)
-    ddx!(dxvz, vz, fdm)
-    ddz!(dzvz, vz, fdm)
+    ddx!(dxvx, vx, fdm⁻)
+    ddz!(dzvx, vx, fdm⁻)
+    ddx!(dxvz, vz, fdm⁻)
+    ddz!(dzvz, vz, fdm⁻)
 
     bc!(dxvx)
     bc!(dzvx)
@@ -115,7 +116,8 @@ function velocity_eq!(dv, s, v, p::Parameters, t)
 
     model = p.model
     prealloc = p.prealloc
-    fdm = p.fdm
+    fdm⁺ = p.fdm_plus
+    fdm⁻ = p.fdm_minus
     bc! = p.bc
     source! = p.source
 
@@ -131,9 +133,9 @@ function velocity_eq!(dv, s, v, p::Parameters, t)
     szx = @view s[:, :, 3]
 
     device = get_backend(dx_sxx)
-    ddx!(dx_sxx, sxx, fdm)
-    ddx!(dx_szx, szx, fdm) # = dx_sxz
-    ddz!(dz_szz, szz, fdm)
+    ddx!(dx_sxx, sxx, fdm⁻)
+    ddx!(dx_szx, szx, fdm⁻) # = dx_sxz
+    ddz!(dz_szz, szz, fdm⁻)
 
     bc!(dx_sxx)
     bc!(dx_szx)

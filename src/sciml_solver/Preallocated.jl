@@ -27,6 +27,7 @@ preallocated = Preallocated(s0)
 ```
 """
 struct Preallocated
+    # TODO: Reuse the storage locations, since equations are split step
     dxvx
     dzvx
 

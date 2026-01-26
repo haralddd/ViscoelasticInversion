@@ -7,7 +7,8 @@ Parameter setup struct for the ViscoelasticProblem solver
 # Fields
 - `model`: Model object
 - `prealloc`: Preallocated storage
-- `fdm`: Finite difference stencil
+- `fdm_stress`: Staggered stencil for stress updates (accesses velocity at half-grid)
+- `fdm_velocity`: Staggered stencil for velocity updates (accesses stress at integer grid)
 - `bc`: Boundary conditions
 - `source`: Source object
 
@@ -32,7 +33,8 @@ struct Parameters
     Nz
     model
     prealloc
-    fdm
+    fdm_plus
+    fdm_minus
     bc
     source
 end
@@ -55,7 +57,8 @@ function Parameters(;kwargs...)
     model = get(kwargs, :model, IsotropicModel(2000.0, 1e9, 1e9, Nx, Nz, device=device))
     
     prealloc = Preallocated(Nx, Nz, device=device)
-    fdm = Stencil(fd_order_x, fd_order_z, dx, dz, device=device)
-    bc = ViscoelasticInversion.get_bc(bc_type, fdm, Nx, Nz)
-    return Parameters(Nx, Nz, model, prealloc, fdm, bc, source)
+    fdm_plus = Stencil(fd_order_x, fd_order_z, dx, dz, Val(:staggered_plus), device=device)
+    fdm_minus = Stencil(fd_order_x, fd_order_z, dx, dz, Val(:staggered_minus), device=device)
+    bc = ViscoelasticInversion.get_bc(bc_type, fdm_plus, Nx, Nz)
+    return Parameters(Nx, Nz, model, prealloc, fdm_plus, fdm_minus, bc, source)
 end
