@@ -28,6 +28,7 @@ function _update_ds!(ds, prealloc::Preallocated, model::TTIModel)
     dsxx = @view ds[:, :, 1]
     dszz = @view ds[:, :, 2]
     dsxz = @view ds[:, :, 3]
+    Mn = @view ds[:,:,4:end]
 
     C11 = model.C11
     C13 = model.C13

@@ -56,9 +56,11 @@ zgrid = [-2, -1, 1, 2]
 stencil = Stencil(xgrid, zgrid, 0, 0, 1.0, 1.0)
 
 # 4th-order staggered grid stencil for velocity-stress formulation
-stencil = Stencil(4, 1.0, :staggered_plus)
-stencil = Stencil(4, 1.0, :staggered_minus)
+stencil⁺ = Stencil(4, 1.0, stagger=:plus)
+stencil⁻ = Stencil(4, 1.0, stagger=:minus)
+
 ```
+
 """
 struct Stencil
     xgrid
@@ -100,67 +102,52 @@ struct Stencil
         return Stencil(_xgrid, _zgrid, _xcoefs, _zcoefs, x0, z0, x1, z1)
     end
 
-    function Stencil(xorder, zorder, Δx, Δz; device=CPU())
-        @assert iseven(xorder) && iseven(zorder) "Called Stencil constructor is only defined for even orders"
-        xpad = xorder ÷ 2
-        zpad = zorder ÷ 2
-        xgrid = filter(!iszero, -xpad:xpad)
-        zgrid = filter(!iszero, -zpad:zpad)
-
-        Stencil(xgrid, zgrid, 0, 0, Δx, Δz, device=device)
-    end
-
-    function Stencil(order, h; device=CPU())
-        Stencil(order, order, h, h, device=device)
-    end
-
     function Stencil(xorder, zorder, Δx, Δz; stagger=:none, device=CPU())
         @assert iseven(xorder) && iseven(zorder) "Staggered stencil requires even orders"
         xpad = xorder ÷ 2
         zpad = zorder ÷ 2
 
         if stagger == :minus
-            xgrid_int = collect(-xpad+1:xpad)
-            zgrid_int = collect(-zpad+1:zpad)
+            xgrid = collect(-xpad+1:xpad)
+            zgrid = collect(-zpad+1:zpad)
 
             # Half-grid positions relative to i+1/2
             # e.g., order 4: indices [-1,0,1,2] -> positions [-3/2, -1/2, 1/2, 3/2]
-            xgrid_rat = [i - 1//2 for i in xgrid_int]
-            zgrid_rat = [i - 1//2 for i in zgrid_int]
+            xloc = [i - 1//2 for i in xgrid]
+            zloc = [i - 1//2 for i in zgrid]
         elseif stagger == :plus
-            xgrid_int = collect(-xpad:xpad-1)
-            zgrid_int = collect(-zpad:zpad-1)
+            xgrid = collect(-xpad:xpad-1)
+            zgrid = collect(-zpad:zpad-1)
 
             # Half-grid positions relative to evaluation point i
             # e.g., order 4: indices [-2,-1,0,1] -> positions [-3/2, -1/2, 1/2, 3/2]
             # (accessing staggered field v[j] at position j+1/2)
-            xgrid_rat = [i + 1//2 for i in xgrid_int]
-            zgrid_rat = [i + 1//2 for i in zgrid_int]
+            xloc = [i + 1//2 for i in xgrid]
+            zloc = [i + 1//2 for i in zgrid]
         else
-            xgrid = filter(!iszero, -xpad:xpad)
-            zgrid = filter(!iszero, -zpad:zpad)
-            throw(ArgumentError("`stagger` must be :minus or :plus"))
+            xgrid = xloc = filter(!iszero, -xpad:xpad)
+            zgrid = zloc = filter(!iszero, -zpad:zpad)
         end
 
         I = preferred_int(device)
         F = preferred_float(device)
-        _xgrid = allocate(device, I, size(xgrid_int))
-        _zgrid = allocate(device, I, size(zgrid_int))
+        _xgrid = allocate(device, I, size(xgrid))
+        _zgrid = allocate(device, I, size(zgrid))
         _xcoefs = similar(_xgrid, F)
         _zcoefs = similar(_zgrid, F)
 
-        xcoefs = _stencil(xgrid_rat, 0, 1) ./ Δx
-        zcoefs = _stencil(zgrid_rat, 0, 1) ./ Δz
+        xcoefs = _stencil(xloc, 0, 1) ./ Δx
+        zcoefs = _stencil(zloc, 0, 1) ./ Δz
 
-        copyto!(_xgrid, Vector{I}(xgrid_int))
-        copyto!(_zgrid, Vector{I}(zgrid_int))
+        copyto!(_xgrid, Vector{I}(xgrid))
+        copyto!(_zgrid, Vector{I}(zgrid))
         copyto!(_xcoefs, Vector{F}(xcoefs))
         copyto!(_zcoefs, Vector{F}(zcoefs))
 
-        x0 = I(abs(min(minimum(xgrid_int), 0)))
-        z0 = I(abs(min(minimum(zgrid_int), 0)))
-        x1 = I(abs(max(maximum(xgrid_int), 0)))
-        z1 = I(abs(max(maximum(zgrid_int), 0)))
+        x0 = I(abs(min(minimum(xgrid), 0)))
+        z0 = I(abs(min(minimum(zgrid), 0)))
+        x1 = I(abs(max(maximum(xgrid), 0)))
+        z1 = I(abs(max(maximum(zgrid), 0)))
 
         return Stencil(_xgrid, _zgrid, _xcoefs, _zcoefs, x0, z0, x1, z1)
     end
