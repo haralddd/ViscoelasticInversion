@@ -14,6 +14,7 @@ include("common/Stencil.jl")
 include("sciml_solver/Preallocated.jl")
 include("sciml_solver/Source.jl")
 include("sciml_solver/BoundaryConditions.jl")
+include("sciml_solver/CPML.jl")
 include("sciml_solver/Models.jl")
 include("sciml_solver/Parameters.jl")
 include("sciml_solver/ViscoelasticProblem.jl")
@@ -22,6 +23,7 @@ export Stencil
 export Preallocated
 export RickerSource
 export AbstractBC, DirichletBC, NeumannBC, PeriodicBC, AbsorbingBC
+export CPMLConfig, CPMLBC, CPMLCoefficients, CPMLMemory, FreeSurfaceBC
 export Parameters
 export AbstractModel, IsotropicModel, VTIModel, TTIModel
 export make_problem, solve_problem

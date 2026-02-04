@@ -12,6 +12,7 @@ The struct contains preallocated buffers for:
 - `dxvx`, `dzvx`: Spatial derivatives of x-velocity
 - `dxvz`, `dzvz`: Spatial derivatives of z-velocity  
 - `dx_sxx`, `dx_szx`,`dz_szz`: Spatial derivatives of stress tensor components
+- `dz_sxz`: Additional stress derivative for symmetry
 
 # Examples
 ```Julia
@@ -36,6 +37,7 @@ struct Preallocated
 
     dx_sxx
     dx_szx
+    dz_sxz
     dz_szz
 end
 
@@ -47,9 +49,10 @@ function Preallocated(Nx, Nz; device=CPU())
     dzvz = KA.zeros(device, T, Nx, Nz)
     dx_sxx = KA.zeros(device, T, Nx, Nz)
     dx_szx = KA.zeros(device, T, Nx, Nz)
+    dz_sxz = KA.zeros(device, T, Nx, Nz)
     dz_szz = KA.zeros(device, T, Nx, Nz)
     
-    return Preallocated(dxvx, dzvx, dxvz, dzvz, dx_sxx, dx_szx, dz_szz)
+    return Preallocated(dxvx, dzvx, dxvz, dzvz, dx_sxx, dx_szx, dz_sxz, dz_szz)
 end
 
 function Preallocated(s0)

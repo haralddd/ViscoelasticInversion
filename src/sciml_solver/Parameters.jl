@@ -31,11 +31,16 @@ params = Parameters(Nx=100, Nz=50, dx=10.0, dz=10.0)
 struct Parameters
     Nx
     Nz
+    dx
+    dz
+    dt
     model
     prealloc
     fdm_plus
     fdm_minus
     bc
+    cpml  # CPML boundary condition (nothing if not using CPML)
+    free_surface  # Free surface BC for top (nothing if not using)
     source
 end
 
@@ -46,19 +51,36 @@ function Parameters(;kwargs...)
     Nz = get(kwargs, :Nz, 64)
     dx = get(kwargs, :dx, 10.0)
     dz = get(kwargs, :dz, 10.0)
+    dt = get(kwargs, :dt, 0.001)  # Time step for CPML coefficient calculation
 
     fd_order_x = get(kwargs, :fd_order_x, 8)
     fd_order_z = get(kwargs, :fd_order_z, 8)
     bc_type = get(kwargs, :bc, :periodic)
-    source = get(kwargs, :source, RickerSource(40.0,0.2,Nx÷2,Nz÷2))
+    source = get(kwargs, :source, RickerSource(40.0, 0.2, Nx÷2, Nz÷2))
     device = get(kwargs, :device, CPU())
     
     # Create default isotropic model if not provided
     model = get(kwargs, :model, IsotropicModel(2000.0, 1e9, 1e9, Nx, Nz, device=device))
     
     prealloc = Preallocated(Nx, Nz, device=device)
-    fdm_plus = Stencil(fd_order_x, fd_order_z, dx, dz, Val(:staggered_plus), device=device)
-    fdm_minus = Stencil(fd_order_x, fd_order_z, dx, dz, Val(:staggered_minus), device=device)
+    fdm_plus = Stencil(fd_order_x, fd_order_z, dx, dz; stagger=:plus, device=device)
+    fdm_minus = Stencil(fd_order_x, fd_order_z, dx, dz; stagger=:minus, device=device)
     bc = ViscoelasticInversion.get_bc(bc_type, fdm_plus, Nx, Nz)
-    return Parameters(Nx, Nz, model, prealloc, fdm_plus, fdm_minus, bc, source)
+    
+    # CPML setup
+    cpml_config = get(kwargs, :cpml, nothing)
+    cpml = nothing
+    if cpml_config !== nothing
+        if cpml_config isa CPMLConfig
+            cpml = CPMLBC(cpml_config, Nx, Nz, dx, dz, dt; device=device)
+        elseif cpml_config isa CPMLBC
+            cpml = cpml_config
+        end
+    end
+    
+    # Free surface setup (for top boundary)
+    use_free_surface = get(kwargs, :free_surface, false)
+    free_surface = use_free_surface ? FreeSurfaceBC() : nothing
+    
+    return Parameters(Nx, Nz, dx, dz, dt, model, prealloc, fdm_plus, fdm_minus, bc, cpml, free_surface, source)
 end
