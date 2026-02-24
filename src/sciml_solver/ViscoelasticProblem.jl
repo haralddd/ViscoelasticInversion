@@ -57,6 +57,47 @@ function _update_ds!(ds, prealloc::Preallocated, model::Union{IsotropicModel,VTI
     @. dsxz = C55 * (dzvx + dxvz)
 end
 
+"Visco TTI model: Uses the full stiffness matrix including C15, C35"
+function _update_ds!(ds, prealloc::Preallocated, model::ViscoTTIModel)
+    dsxx = @view ds[:, :, 1]
+    dszz = @view ds[:, :, 2]
+    dsxz = @view ds[:, :, 3]
+
+    C11, C13, C15 = model.C11, model.C13, model.C15
+    C33, C35, C55 = model.C33, model.C35, model.C55
+
+    dxvx, dzvx = prealloc.dxvx, prealloc.dzvx
+    dxvz, dzvz = prealloc.dxvz, prealloc.dzvz
+
+    # all auxiliary fields
+    N = size(ds, 3) - 3
+    for n in 1:N
+        dot_eps = dxvx
+        N_inv = 1.0 / N
+        τn_inv = 1.0 / τn
+        dM11 = - 0.5 * N_inv * τn_inv * dot_eps - τn_inv * M11
+    end
+
+    @. dsxx = C11 * dxvx + C13 * dzvz + C15 * (dzvx + dxvz)
+    @. dszz = C13 * dxvx + C33 * dzvz + C35 * (dzvx + dxvz)
+    @. dsxz = C15 * dxvx + C35 * dzvz + C55 * (dzvx + dxvz)
+end
+
+"Visco VTI/Isotropic model: Uses C11, C13, C33, C55 only"
+function _update_ds!(ds, prealloc::Preallocated, model::Union{ViscoIsotropicModel,ViscoVTIModel})
+    dsxx = @view ds[:, :, 1]
+    dszz = @view ds[:, :, 2]
+    dsxz = @view ds[:, :, 3]
+
+    C11, C13, C33, C55 = model.C11, model.C13, model.C33, model.C55
+    dxvx, dzvx = prealloc.dxvx, prealloc.dzvx
+    dxvz, dzvz = prealloc.dxvz, prealloc.dzvz
+
+    @. dsxx = C11 * dxvx + C13 * dzvz
+    @. dszz = C13 * dxvx + C33 * dzvz
+    @. dsxz = C55 * (dzvx + dxvz)
+end
+
 #=============================================================================
 # Main ODE right-hand-side functions
 =============================================================================#

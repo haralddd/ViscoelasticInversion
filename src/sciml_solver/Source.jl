@@ -11,14 +11,14 @@ struct RickerSource <: AbstractSource
     coefs
     tspan
 
-    function RickerSource(freq, tc, grid, coefs; thresh=1e-6)
-        t1 = find_zero(t -> abs(_ricker(freq, t - tc)) - thresh, tc - 1.0/freq)
-        t2 = find_zero(t -> abs(_ricker(freq, t - tc)) - thresh, tc + 1.0/freq)
+    function RickerSource(freq, tc, grid, coefs; rtol=1e-6)
+        t1 = find_zero(t -> abs(_ricker(freq, t - tc)), tc - 1.0/freq, rtol=rtol)
+        t2 = find_zero(t -> abs(_ricker(freq, t - tc)), tc + 1.0/freq,rtol=rtol)
 
         return new(freq, tc, grid, coefs, (t1, t2))
     end
 
-    function RickerSource(freq, tc, nx::Int, nz::Int; thresh=1e-6, device=CPU())
+    function RickerSource(freq, tc, nx::Int, nz::Int; rtol=1e-6, device=CPU())
 
         I = preferred_int(device)
         F = preferred_float(device)
@@ -28,7 +28,7 @@ struct RickerSource <: AbstractSource
         copyto!(grid, [(nx, nz)])
         copyto!(coefs, [1.0])
 
-        return RickerSource(freq, tc, grid, coefs, thresh=thresh)
+        return RickerSource(freq, tc, grid, coefs, rtol=rtol)
     end
 end
 
