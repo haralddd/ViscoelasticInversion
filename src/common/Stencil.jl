@@ -13,6 +13,181 @@ function _stencil(x::AbstractVector{<:Real}, x₀::Real, m::Integer)
     return A \ (ℓ .== m) # vector of weights w
 end
 
+# s4 = _stencil([-1//1, (-1//2:1//1:5//2)...], 0//1, 1)
+
+# Make a new stencil struct more suitable for the visco-kernels
+
+struct StaggeredStencil{T}
+    D::Vector{T}
+    DL::Int
+
+    function StaggeredStencil(DL::Int, device=CPU())
+        g1 = (DL+1)//2
+        coeffs = _stencil(-g1:g1, 0//1, 1)
+
+        T = preferred_float(device)
+        D = allocate(device, T, length(coeffs))
+        copyto!(D, Vector{T}(coeffs))
+        return new{T}(D, DL)
+    end
+end
+
+
+"""
+ H-AFDA Free surface stencil without stress imaging, described by Kristek 2002
+ https://doi.org/10.1023/A:1019866422821 
+
+ Grid layout (H-formulation, surface at half-grid above first integer point):
+   z = 0      : free surface (τzz=0, τxz=0)
+   z = h/2    : vz, τxz positions
+   z = h      : vx, τxx, τzz positions  
+   z = 3h/2   : vz, τxz positions
+   ...
+
+ Formulas (Table 4):
+   D1: derivative at z=0, with f(0)=0 (formula #1) - for τxz,z at surface
+   D2: derivative at z=h/2 (formula #2) - for u,z, v,z, τzz,z at half-grid
+   D4: derivative at z=h, with f(0)=0 (formula #4) - for τxz,z at first integer point
+"""
+struct FreeSurfaceStencil{T}
+    D1::Vector{T}  # Formula #1: f'(0) with f(0)=0, uses points at h/2, 3h/2, ...
+    D2::Vector{T}  # Formula #2: f'(h/2), uses points at 0, h, 2h, ...
+    D3::Vector{T}  # Formula #3: f'(h) Hermitian, uses f'(0) + points at h/2, 3h/2, ...
+    D3_deriv::T    # Formula #3: coefficient for f'(0) term
+    D4::Vector{T}  # Formula #4: f'(h) with f(0)=0, uses points at h/2, 3h/2, ... (explicit alternative to #3)
+    L::Int         # Half-length of standard stencil (order = 2L)
+
+    function FreeSurfaceStencil(order::Int, device=CPU())
+        L = order ÷ 2
+        
+        # Grid points for stencils (in units of h)
+        # D1: f'(0) using f(0)=0, sample at half-integers h/2, 3h/2, ..., (2L-1)h/2
+        pts_half = [(2k-1)//2 for k in 1:order]  # [1/2, 3/2, 5/2, ...]
+        
+        # D2: f'(h/2) using integer points 0, h, 2h, ..., Lh
+        pts_int = [k//1 for k in 0:order]  # [0, 1, 2, ...]
+        
+        # D3: Hermitian stencil for f'(h) using f'(0) and half-grid points
+        # We solve for coefficients such that f'(h) ≈ α·f'(0) + Σ βₖ·f(kh/2)
+        # This requires solving an augmented system
+        pts_D3 = [0//1, pts_half...]  # Include 0 as "derivative point"
+        
+        # Compute stencil coefficients
+        s1_full = _stencil(pts_half, 0//1, 1)      # f'(0) from half-grid points
+        s2_full = _stencil(pts_int, 1//2, 1)       # f'(h/2) from integer points
+        s4_full = _stencil(pts_half, 1//1, 1)      # f'(h) explicit (alternative to #3)
+
+        s1 = s1_full[2:end] # Omit evaluation on the free surface f(0) = 0
+        s2 = s2_full[2:end]
+        s4 = s4_full[2:end]
+        
+        # Formula #3: Hermitian stencil
+        # f'(h) = α·h·f'(0) + Σ βₖ·f((2k-1)h/2)  for k=1,...,order
+        # The system includes: derivative info at 0, function values at half-grid
+        # Augmented Vandermonde: row for derivative at 0 contributes to accuracy
+        s3_full = _stencil_hermitian(pts_half, 0//1, 1//1, 1)  # Custom Hermitian stencil
+        s3_deriv = s3_full[1]     # Coefficient for f'(0) term (multiplied by h)
+        s3 = s3_full[2:end]       # Coefficients for function values
+        
+        T = preferred_float(device)
+        D1 = allocate(device, T, length(s1))
+        D2 = allocate(device, T, length(s2))
+        D3 = allocate(device, T, length(s3))
+        D4 = allocate(device, T, length(s4))
+        
+        copyto!(D1, Vector{T}(s1))
+        copyto!(D2, Vector{T}(s2))
+        copyto!(D3, Vector{T}(s3))
+        copyto!(D4, Vector{T}(s4))
+        
+        return new{T}(D1, D2, D3, T(s3_deriv), D4, L)
+    end
+end
+
+"""
+    _stencil_hermitian(x, x_deriv, x₀, m)
+
+Hermitian stencil: approximate f^(m)(x₀) using f'(x_deriv) and function values at x.
+Returns [coef_for_derivative, coefs_for_function_values...]
+
+# Arguments
+- `x`: Vector of points where function values are known
+- `x_deriv`: Single point where derivative is known  
+- `x₀`: Point where we want to approximate the derivative
+- `m`: Order of derivative to approximate (1 = first derivative)
+"""
+function _stencil_hermitian(x::AbstractVector{<:Real}, x_deriv::Real, x₀::Real, m::Integer)
+    return _stencil_hermitian(x, [x_deriv], [1], x₀, m)
+end
+
+"""
+    _stencil_hermitian(x_func, x_derivs, deriv_orders, x₀, m)
+
+Full Hermitian stencil: approximate f^(m)(x₀) using:
+- Function values f(x) at points in `x_func`
+- Derivatives f^(k)(x) at points in `x_derivs` with orders in `deriv_orders`
+
+Returns [coefs_for_derivatives..., coefs_for_function_values...]
+
+# Arguments
+- `x_func`: Vector of points where function values are known
+- `x_derivs`: Vector of points where derivatives are known
+- `deriv_orders`: Vector of derivative orders at each point in x_derivs (e.g., [1,1] for two first derivatives)
+- `x₀`: Point where we want to approximate the derivative
+- `m`: Order of derivative to approximate
+
+# Example
+```julia
+# Approximate f'(1) using f(1/2), f(3/2), f(5/2), f(7/2) and f'(0)
+_stencil_hermitian([1//2, 3//2, 5//2, 7//2], [0//1], [1], 1//1, 1)
+
+# Approximate f'(1) using f(1/2), f(3/2) and both f'(0) and f''(0)
+_stencil_hermitian([1//2, 3//2], [0//1, 0//1], [1, 2], 1//1, 1)
+
+# Full Hermitian: use f and f' at multiple points
+_stencil_hermitian([0//1, 1//1], [0//1, 1//1], [1, 1], 1//2, 1)  # f'(1/2) from f(0),f(1),f'(0),f'(1)
+```
+"""
+function _stencil_hermitian(x_func::AbstractVector{<:Real}, x_derivs::AbstractVector{<:Real}, 
+                            deriv_orders::AbstractVector{<:Integer}, x₀::Real, m::Integer)
+    n_func = length(x_func)
+    n_deriv = length(x_derivs)
+    n_total = n_func + n_deriv
+    
+    # Total degrees of freedom determines max polynomial order we can match
+    ℓ_max = n_total - 1
+    
+    # Build augmented Vandermonde matrix
+    A = zeros(Rational{BigInt}, n_total, n_total)
+    
+    # Columns 1:n_deriv: derivative values
+    # f^(k)(x_d) = Σ_{ℓ=k}^{∞} f^(ℓ)(x₀) (x_d - x₀)^(ℓ-k) / (ℓ-k)!
+    for (col, (xd, k)) in enumerate(zip(x_derivs, deriv_orders))
+        for row in 1:n_total
+            ℓ = row - 1
+            if ℓ >= k
+                A[row, col] = (big(xd) - big(x₀))^(ℓ - k) // factorial(big(ℓ - k))
+            end
+        end
+    end
+    
+    # Columns (n_deriv+1):n_total: function values
+    # f(x) = Σ_{ℓ=0}^{∞} f^(ℓ)(x₀) (x - x₀)^ℓ / ℓ!
+    for (idx, xk) in enumerate(x_func)
+        col = n_deriv + idx
+        for row in 1:n_total
+            ℓ = row - 1
+            A[row, col] = (big(xk) - big(x₀))^ℓ // factorial(big(ℓ))
+        end
+    end
+    
+    # Right-hand side: we want the m-th derivative at x₀
+    b = zeros(Rational{BigInt}, n_total)
+    b[m+1] = 1
+    
+    return A \ b
+end
+
 """
     Stencil(order, h; device=CPU())
     Stencil(xorder, zorder, Δx, Δz; device=CPU())
